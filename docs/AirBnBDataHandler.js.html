@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: AirBnBDataHandler.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: AirBnBDataHandler.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>import { readFile, writeFile } from 'node:fs/promises';
+import { parse } from 'csv-parse/sync';
+
+/**
+ * @param {string} dataStr - The CSV file content as a string.
+ * @returns {Array&lt;Object>} An array of parsed data objects
+ */
+function parseCSV(dataStr) {
+    const listings = parse(dataStr, {
+      columns: true,
+      skip_empty_lines: true,
+      trim: true,
+      relax_quotes: true,
+    });
+    return listings;
+  }  
+
+/**
+ * Internal factory function that creates an AirBnBDataHandler instance.
+ * This instance supports method chaining.
+ *
+ * @param {Array&lt;Object>} listings - Array of listing objects.
+ * @returns {Object} An AirBnBDataHandler instance with data methods.
+ */
+function createAirBnBDataHandlerInstance(listings) {
+  const data = listings.slice(); // Copy the data from listings.
+
+  return {
+    /**
+     * Filters listings based on specified criteria.
+     *
+     * @param {Object} criteria - The filter criteria.
+     * @param {number} [criteria.minPrice] - Minimum price.
+     * @param {number} [criteria.maxPrice] - Maximum price.
+     * @param {number} [criteria.minBedrooms] - Minimum number of bedrooms.
+     * @param {number} [criteria.maxBedrooms] - Maximum number of bedrooms.
+     * @param {number} [criteria.minReview] - Minimum review score.
+     * @param {number} [criteria.maxReview] - Maximum review score.
+     * @returns {Object} A new AirBnBDataHandler instance with filtered data.
+     */
+    filter(criteria) {
+      const filtered = data.filter(listing => {
+        let price = parseFloat(listing.price.replace(/[^0-9.]/g, ''));
+        if (isNaN(price)) return false;  // Handle N/A as false
+        let bedrooms = parseFloat(listing.bedrooms);
+        if (isNaN(bedrooms)) return false;  // Handle N/A as false
+        let review = parseFloat(listing.review_scores_rating);
+        if (isNaN(review)) return false;  // Handle N/A as false
+        if (criteria.minPrice !== undefined &amp;&amp; price &lt; criteria.minPrice) return false;
+        if (criteria.maxPrice !== undefined &amp;&amp; price > criteria.maxPrice) return false;
+        if (criteria.minBedrooms !== undefined &amp;&amp; bedrooms &lt; criteria.minBedrooms) return false;
+        if (criteria.maxBedrooms !== undefined &amp;&amp; bedrooms > criteria.maxBedrooms) return false;
+        if (criteria.minReview !== undefined &amp;&amp; review &lt; criteria.minReview) return false;
+        if (criteria.maxReview !== undefined &amp;&amp; review > criteria.maxReview) return false;
+        return true;
+      });
+      return createAirBnBDataHandlerInstance(filtered);
+    },
+
+    /**
+     * Further filters listings by required amenities.
+     * @param {Array&lt;string>} amenities - Array of required amenities.
+     * @returns {Object} A new AirBnBDataHandler instance with listings that include all specified amenities.
+     */
+    filterByAmenities(amenities) {
+      const filtered = data.filter(listing => {
+        let listingAmenities;
+        try {
+          listingAmenities = JSON.parse(listing.amenities);
+        } catch (error) {
+          listingAmenities = listing.amenities;
+        }
+        if (!Array.isArray(listingAmenities)) {
+            if (typeof listingAmenities === 'string') {
+              listingAmenities = listingAmenities
+                .split(',')
+                .map(item => item.trim())
+                .filter(item => item !== '');  // Method chaining
+            } else {
+              listingAmenities = [];
+            }
+          }
+        // Determine whether the current listing contains all specified amenity
+        return amenities.every(amenity => listingAmenities.includes(amenity));
+      });
+      return createAirBnBDataHandlerInstance(filtered);
+    },
+
+    /**
+     * Computes statistics: total number of listings and the average price per bedroom.
+     *
+     * @returns {Object} An object with properties { count, avgPricePerBedroom }.
+     */
+    computeStats() {
+      const count = data.length;
+      const { totalPrice, totalBedrooms } = data.reduce((acc, listing) => {
+        let price = parseFloat(listing.price.replace(/[^0-9.]/g, ''));
+        if (isNaN(price)) price = 0;
+        let bedrooms = parseFloat(listing.bedrooms);
+        if (isNaN(bedrooms) || bedrooms === 0) bedrooms = 1; // avoid division by 0
+        acc.totalPrice += price;
+        acc.totalBedrooms += bedrooms;
+        return acc;
+      }, { totalPrice: 0, totalBedrooms: 0 });
+      const avgPricePerBedroom = totalBedrooms > 0 ? totalPrice / totalBedrooms : 0;
+      return { count, avgPricePerBedroom };
+    },
+
+    /**
+     * Computes host rankings by counting the number of listings per host, sorted in descending order.
+     *
+     * @returns {Array&lt;Object>} An array of objects with { host_name, count }.
+     */
+    computeHostRankings() {
+      const hostMap = data.reduce((acc, listing) => {
+        const hostName = listing.host_name || 'Unknown';
+        acc[hostName] = (acc[hostName] || 0) + 1;
+        return acc;
+      }, {});
+      const ranking = Object.entries(hostMap)
+        .map(([host_name, count]) => ({ host_name, count }))
+        .sort((a, b) => b.count - a.count);
+      return ranking;
+    },
+
+    /**
+     * Exports the results to a specified file.
+     *
+     * @param {Object|string} results - The results object or string to export.
+     * @param {string} filePath - The path of the file to export the results.
+     * @returns {Promise&lt;void>} A promise that resolves when the export is complete.
+     */
+    async exportResults(results, filePath) {
+      const output = typeof results === 'object' ? JSON.stringify(results, null, 2) : results;
+      await writeFile(filePath, output, 'utf8');
+    },
+
+    /**
+     * Retrieves the current listings data.
+     *
+     * @returns {Array&lt;Object>} The current array of listing objects.
+     */
+    getData() {
+      return data;
+    }
+  };
+}
+
+/**
+ * Loads the CSV file from the specified path and creates an AirBnBDataHandler instance.
+ *
+ * @param {string} filePath - The path to the CSV file.
+ * @returns {Promise&lt;Object>} A promise that resolves to an AirBnBDataHandler instance.
+ */
+export async function createAirBnBDataHandler(filePath) {
+  try {
+    const fileContent = await readFile(filePath, 'utf8');
+    const listings = parseCSV(fileContent);
+    return createAirBnBDataHandlerInstance(listings);
+  } catch (error) {
+    console.error('Error reading or parsing file:', error);
+    throw error;
+  }
+}
+
+/**
+ * Counterexample: an impure function that violates pure function principles by modifying a global variable.
+ *
+ * @param {Object} listing - An Airbnb listing object.
+ * @returns {number} The adjusted price.
+ */
+let globalDiscount = 0;
+export function impureAdjustPrice(listing) {
+  // Impure behavior: modifying the globalDiscount variable on each call
+  globalDiscount += 5;
+  let price = parseFloat(listing.price.replace(/[^0-9.]/g, ''));
+  if (isNaN(price)) price = 0;
+  return price - globalDiscount;
+}
+
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Global</h3><ul><li><a href="global.html#computeHostRankings">computeHostRankings</a></li><li><a href="global.html#computeStats">computeStats</a></li><li><a href="global.html#createAirBnBDataHandler">createAirBnBDataHandler</a></li><li><a href="global.html#createAirBnBDataHandlerInstance">createAirBnBDataHandlerInstance</a></li><li><a href="global.html#exportResults">exportResults</a></li><li><a href="global.html#filter">filter</a></li><li><a href="global.html#filterByAmenities">filterByAmenities</a></li><li><a href="global.html#getData">getData</a></li><li><a href="global.html#globalDiscount">globalDiscount</a></li><li><a href="global.html#parseCSV">parseCSV</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 4.0.4</a>
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

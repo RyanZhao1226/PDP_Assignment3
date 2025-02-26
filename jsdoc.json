@@ -1,0 +1,16 @@
+{
+    "source": {
+      "include": ["solution"], 
+      "exclude": ["node_modules"]
+    },
+    "opts": {
+      "destination": "./docs",
+      "recurse": true
+    },
+    "templates": {
+      "default": {
+        "includeDate": false
+      }
+    }
+  }
+  
