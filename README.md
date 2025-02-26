@@ -18,6 +18,7 @@ or
 
 ## Project structure
 
+```
 project_root/
 ├── solution/
 │   ├── AirBnBDataHandler.js
@@ -30,6 +31,7 @@ project_root/
 ├── package-lock.json
 ├── package.json
 ├── README.md
+```
 
 ## Features
 
